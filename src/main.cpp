@@ -4,12 +4,13 @@
 #include <Wire.h>              //  Подключаем библиотеку для работы с шиной I2C
 #include <LiquidCrystal_I2C.h> //  Подключаем библиотеку для работы с LCD дисплеем по шине I2C
 
-#define _MEASUREMENT_PERIOD 10000   // Период измерения скорости ветра(10 с)
-#define _MEASUREMENT_AZIMUTH 120000 // Период вычисления азимута флюгарки(2 мин)
-#define _ARRAY_PERIOD_VOLUME 60     // Размер массива для хранения скорости ветра (60 = 10 мин / 10000 мс)
-#define _ARRAY_FAZA_VOLUME 600      // Размер массива для хранения азимута (600)
-#define _STEP 5                     // Разбиение по азимутам с шагом 5 градусов
-#define _WIND_COEFFICIENT 1.3       // Коэффициент отношения скорости ветра к частоте вращения вертушки
+#define _MEASUREMENT_PERIOD 10000  // Период измерения скорости ветра(10 с)
+#define _MEASUREMENT_AZIMUTH 10000 // Период вычисления азимута флюгарки(2 мин = 120000)
+#define _ARRAY_PERIOD_VOLUME 10    // Размер массива для хранения скорости ветра (60 = 10 мин / 10000 мс)
+#define _ARRAY_FAZA_VOLUME 600     // Размер массива для хранения азимута (600)
+#define _STEP 5                    // Разбиение по азимутам с шагом 5 градусов
+#define _WIND_COEFFICIENT 1.3      // Коэффициент отношения скорости ветра к частоте вращения вертушки
+#define _CALM 0.3                  // Скорость ветра (м/с) при штиле
 
 LiquidCrystal_I2C lcd(0x27, 20, 4); //  Объявляем  объект библиотеки, указывая параметры дисплея (адрес I2C = 0x27, количество столбцов = 20, количество строк = 4)
 
@@ -35,6 +36,21 @@ uint32_t tmr2 = 0, tmr10 = 0;
 uint16_t azimuth_selection[360 / _STEP]; // 360 градусов разбито по 5 градусов
 uint16_t i_period = 0, i_faza = 0, i_faza_max = 0, azimuth_middle = 0;
 float wind, wind_max, wind_middle;
+String azimuth_string;
+// String azimuth_string_arr[] = {"CALM", "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW", "N"};
+String azimuth_string_arr[] = {"\5T\2\6\7", "C", "CCB", "CB", "BCB", "B", "B\4B", "\4B", "\4\4B", "\4", "\4\4\1", "\4\1", "\1\4\1", "\1", "\1C\1", "C\1", "CC\1", "C"};
+// String azimuth_ru = "DIRECTION";
+String azimuth_ru = "HA\3PAB\6."; // НАПРАВЛ.
+
+// const char bell[8] PROGMEM = {B00100, B01110, B01110, B01110, B11111, B00000, B00100, B00000};     // колокольчик
+const char litter_3[8] PROGMEM = {B01110, B10001, B00001, B00110, B00001, B10001, B01110, B00000}; // З -1
+const char litter_I[8] PROGMEM = {B10001, B10001, B10011, B10101, B11001, B10001, B10001, B00000}; // И -2
+const char litter_P[8] PROGMEM = {B11111, B10001, B10001, B10001, B10001, B10001, B10001, B00000}; // П -3
+// const char litter_U[8] PROGMEM = {B10001, B10001, B10001, B01111, B00001, B00010, B01100, B00000};  // У
+const char litter_YU[8] PROGMEM = {B10010, B10101, B10101, B11101, B10101, B10101, B10010, B00000}; // Ю -4
+const char litter_SH[8] PROGMEM = {B10101, B10101, B10101, B10101, B10101, B10101, B11111, B00000}; // Ш -5
+const char litter_L[8] PROGMEM = {B00011, B00101, B01001, B01001, B01001, B01001, B10001, B00000};  // Л -6
+const char litter_MZ[8] PROGMEM = {B10000, B10000, B10000, B11100, B10010, B10010, B11100, B00000}; // Ь -7
 
 void setup()
 {
@@ -44,6 +60,13 @@ void setup()
   attachInterrupt(1, faza, FALLING); // прерывание по LOW на D3
   pinMode(2, INPUT_PULLUP);          // назначить выводу порт ввода с подтяжкой
   pinMode(3, INPUT_PULLUP);          // назначить выводу порт ввода с подтяжкой
+  lcd.createChar(1, litter_3);
+  lcd.createChar(2, litter_I);
+  lcd.createChar(3, litter_P);
+  lcd.createChar(4, litter_YU);
+  lcd.createChar(5, litter_SH);
+  lcd.createChar(6, litter_L);
+  lcd.createChar(7, litter_MZ);
 }
 
 void loop()
@@ -103,7 +126,7 @@ void period()
   }
   else
   {
-    period_time = 4290000000;
+    period_time = 4290000000; // вертушка не крутится (типа деление на 0)
   }
 }
 
@@ -185,12 +208,20 @@ void bubbleSort()
   }
 }
 
-// преобразование данных перед выводом на дисплей
+// Подготовка данных к выводу на дисплей
 void dataFormat()
 {
   wind = 1000000.0 * _WIND_COEFFICIENT / period_time;
   wind_middle = 1000000.0 * _WIND_COEFFICIENT / period_middle;
   wind_max = 1000000.0 * _WIND_COEFFICIENT / period_min;
+  if (wind_middle < _CALM)
+  {
+    azimuth_string = azimuth_string_arr[0];
+  }
+  else
+  {
+    azimuth_string = azimuth_string_arr[1 + (int)((azimuth_middle + 11) / 22.5)];
+  }
 }
 
 // Первоначальный вывод на экран LCD
@@ -207,35 +238,32 @@ void lcdFirst()
   delay(1000);
   lcd.clear();
 
-  lcd.setCursor(0, 0);
-  lcd.print("BETEP:");
-
   lcd.setCursor(0, 1);
-  lcd.print("CPEDH.:");
-
-  lcd.setCursor(0, 2);
-  lcd.print("  ==>");
-
-  lcd.setCursor(0, 3);
-  lcd.print("A3NMYT:");
+  lcd.print(azimuth_ru);
 }
 
 // Вывод информации на экран LCD
 void lcdPrint()
 {
-  lcd.setCursor(8, 0);
+  lcd.setCursor(0, 0);
   lcd.print(wind);
-  lcd.print(" m/s   ");
+  lcd.print("  ");
 
-  lcd.setCursor(8, 1);
+  lcd.setCursor(7, 0);
   lcd.print(wind_middle);
-  lcd.print(" m/s   ");
+  lcd.print("  ");
 
-  lcd.setCursor(8, 2);
+  lcd.setCursor(14, 0);
   lcd.print(wind_max);
-  lcd.print(" m/s   ");
+  lcd.print("  ");
 
-  lcd.setCursor(8, 3);
+  lcd.setCursor(10, 1);
   lcd.print(azimuth_middle);
+  lcd.write(223);
   lcd.print("   ");
+
+  lcd.setCursor(15, 1);
+  lcd.print("     ");
+  lcd.setCursor(15, 1);
+  lcd.print(azimuth_string);
 }
