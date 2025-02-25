@@ -9,7 +9,9 @@ __Библиотеки:__
 - marcoschwartz/LiquidCrystal_I2C@^1.1.4
 - adafruit/Adafruit Unified Sensor@^1.1.15
 - adafruit/DHT sensor library@^1.4.6
-  
+- adafruit/Adafruit BMP280 Library@^2.6.8
+  [(Документация Adafruit)](https://github.com/adafruit/Adafruit_Sensor)
+
 __Контроллер:__ Arduino Mega 2560\
 __Доп. модули:__
 - Дисплей LCD2004 I2C

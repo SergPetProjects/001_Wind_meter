@@ -6,9 +6,11 @@
 #include <Adafruit_Sensor.h>
 #include <DHT.h>
 #include <DHT_U.h>
+#include <Adafruit_BMP280.h>
 
 #define _MEASUREMENT_PERIOD 10000  // Период измерения скорости ветра(10 с)
 #define _MEASUREMENT_AZIMUTH 10000 // Период вычисления азимута флюгарки(2 мин = 120000)
+#define _MEASUREMENT_TREND 22000   // Период вычисления тенденции погоды(10 мин = 600000)
 #define _ARRAY_PERIOD_VOLUME 10    // Размер массива для хранения скорости ветра (60 = 10 мин / 10000 мс)
 #define _ARRAY_FAZA_VOLUME 600     // Размер массива для хранения азимута (600)
 #define _STEP 5                    // Разбиение по азимутам с шагом 5 градусов
@@ -22,6 +24,7 @@
 #define _DHT22_TYPE DHT22          // DHT 22 (AM2302)
 
 LiquidCrystal_I2C lcd(0x27, 20, 4); //  Объявляем  объект библиотеки, указывая параметры дисплея (адрес I2C = 0x27, количество столбцов = 20, количество строк = 4)
+Adafruit_BMP280 bmp;                // Датчик давления будет подключен по I2C
 DHT_Unified dht_11(_DHT11_PIN, _DHT11_TYPE);
 DHT_Unified dht_22(_DHT22_PIN, _DHT22_TYPE);
 
@@ -38,6 +41,9 @@ void dataFormat();
 void printSensorDetails(DHT_Unified dht);
 float getTemperature(DHT_Unified dht);
 float getHumidity(DHT_Unified dht);
+void weatherTrend();
+template <typename T>
+String getTrend(T &val, T &val_old);
 
 volatile bool period_flag = true; // разрешение на измерение периода
 volatile bool faza_flag = false;  // разрешение на измерение фазы
@@ -46,30 +52,36 @@ volatile uint32_t period_time, period_middle, period_min;
 volatile uint16_t counter = 0;
 uint32_t period_array[_ARRAY_PERIOD_VOLUME], sort_array[_ARRAY_PERIOD_VOLUME];
 uint32_t azimuth_array[_ARRAY_FAZA_VOLUME], azimuth_faza[_ARRAY_FAZA_VOLUME];
-uint32_t tmr2 = 0, tmr10 = 0;
+uint32_t tmr2 = 0, tmr10s = 0, tmr10 = 0;
 uint16_t azimuth_selection[360 / _STEP]; // 360 градусов разбито по 5 градусов
 uint16_t i_period = 0, i_faza = 0, i_faza_max = 0, azimuth_middle = 0;
-float wind, wind_max, wind_middle;
+float wind, wind_max, wind_middle, wind_middle_old;
 String azimuth_string;
 // String azimuth_string_arr[] = {"CALM", "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW", "N"};
-String azimuth_string_arr[] = {"\5T\2\6\7", "C", "CCB", "CB", "BCB", "B", "B\4B", "\4B", "\4\4B", "\4", "\4\4\1", "\4\1", "\1\4\1", "\1", "\1C\1", "C\1", "CC\1", "C"};
+String azimuth_string_arr[] = {"\5T\2\6\7", "  C", "CCB", " CB", "BCB", "  B", "B\2B", " \2B", "\2\2B", "  \2", "\2\2\6", " \2\6", "\6\2\6", "  \6", "\6C\6", " C\6", "CC\6", "  C"};
 // String azimuth_ru = "DIRECTION";
 // String azimuth_ru = "HA\3PAB\6.";     // НАПРАВЛ.
 
 // const char bell[8] PROGMEM = {B00100, B01110, B01110, B01110, B11111, B00000, B00100, B00000};     // колокольчик
 // const char litter_ZH[8] PROGMEM = {B10101, B10101, B10101, B01110, B10101, B10101, B10101, B00000}; // Ж
-const char litter_o[8] PROGMEM = {B00111, B00101, B00111, B00000, B00000, B00000, B00000, B00000}; // o -0
-const char litter_3[8] PROGMEM = {B01110, B10001, B00001, B00110, B00001, B10001, B01110, B00000}; // З -1
-const char litter_I[8] PROGMEM = {B10001, B10001, B10011, B10101, B11001, B10001, B10001, B00000}; // И -2
+const char litter_o[8] PROGMEM = {B00111, B00101, B00111, B00000, B00000, B00000, B00000, B00000};    // o -0
+const char litter_YU[8] PROGMEM = {B10010, B10101, B10101, B11101, B10101, B10101, B10010, B00000};   // Ю -2 (меняется динамически)
+const char litter_I[8] PROGMEM = {B10001, B10001, B10011, B10101, B11001, B10001, B10001, B00000};    // И -2 (меняется динамически)
+const char litter_down[8] PROGMEM = {B00100, B00100, B00100, B00100, B10101, B01110, B00100, B00000}; // стрелка вниз -3
+const char litter_up[8] PROGMEM = {B00100, B01110, B10101, B00100, B00100, B00100, B00100, B00000}; // стрелка вверх -4
 // const char litter_P[8] PROGMEM = {B11111, B10001, B10001, B10001, B10001, B10001, B10001, B00000}; // П -3
 // const char litter_U[8] PROGMEM = {B10001, B10001, B10001, B01111, B00001, B00010, B01100, B00000};  // У
-const char litter_YU[8] PROGMEM = {B10010, B10101, B10101, B11101, B10101, B10101, B10010, B00000}; // Ю -4
 const char litter_SH[8] PROGMEM = {B10101, B10101, B10101, B10101, B10101, B10101, B11111, B00000}; // Ш -5
-const char litter_L[8] PROGMEM = {B00011, B00101, B01001, B01001, B01001, B01001, B10001, B00000};  // Л -6
+const char litter_L[8] PROGMEM = {B00011, B00101, B01001, B01001, B01001, B01001, B10001, B00000};  // Л -6 (меняется динамически)
+const char litter_3[8] PROGMEM = {B01110, B10001, B00001, B00110, B00001, B10001, B01110, B00000};  // З -6 (меняется динамически)
 const char litter_MZ[8] PROGMEM = {B10000, B10000, B10000, B11100, B10010, B10010, B11100, B00000}; // Ь -7
 
 uint32_t delayDHT_11, delayDHT_22;
+uint16_t pressure, pressure_old;
 float temperature_in, temperature_out, humidity_in, humidity_out;
+float temperature_in_old, temperature_out_old, humidity_in_old, humidity_out_old;
+String temperature_in_trend, temperature_out_trend, humidity_in_trend, humidity_out_trend, pressure_trend, wind_middle_trend;
+String trend_up = "\4", trend_down = "\3";
 
 void setup()
 {
@@ -82,10 +94,10 @@ void setup()
   pinMode(_REED_SWITCH_1_PIN, INPUT_PULLUP); // назначить выводу порт ввода с подтяжкой
   pinMode(_REED_SWITCH_2_PIN, INPUT_PULLUP); // назначить выводу порт ввода с подтяжкой
   lcd.createChar(0, litter_o);
-  lcd.createChar(1, litter_3);
+  // lcd.createChar(1, litter_3);
   lcd.createChar(2, litter_I);
-  // lcd.createChar(3, litter_P);
-  lcd.createChar(4, litter_YU);
+  lcd.createChar(3, litter_down);
+  lcd.createChar(4, litter_up);
   lcd.createChar(5, litter_SH);
   lcd.createChar(6, litter_L);
   lcd.createChar(7, litter_MZ);
@@ -96,14 +108,23 @@ void setup()
   // Вывод в консоль информации о датчиках DHTxx
   printSensorDetails(dht_11);
   printSensorDetails(dht_22);
+
+  // Инициализация BMP 280
+  bmp.begin(0x76);
+  /* Настройки по умолчанию из технического описания. */
+  bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,     /* Режим работы. */
+                  Adafruit_BMP280::SAMPLING_X2,     /* Temp. oversampling - Передискретизация температуры*/
+                  Adafruit_BMP280::SAMPLING_X16,    /* Pressure oversampling - Передискретизация давления */
+                  Adafruit_BMP280::FILTER_X16,      /* Filtering. */
+                  Adafruit_BMP280::STANDBY_MS_500); /* Standby time. */
 }
 
 void loop()
 {
-  if (millis() - tmr10 >= _MEASUREMENT_PERIOD) // таймер 10 секунд
+  if (millis() - tmr10s >= _MEASUREMENT_PERIOD) // таймер 10 секунд
   {
     period(); // Расчёт периода вращения вертушки
-    tmr10 = millis();
+    tmr10s = millis();
 
     period_array[i_period] = period_time; // заполнение массива данными о периоде (затирается самое старое)
     if (++i_period >= _ARRAY_PERIOD_VOLUME)
@@ -129,6 +150,12 @@ void loop()
     azimuth_array_copy();
     azimuthSort(); // определение азимута по таймеру (2 мин)
     tmr2 = millis();
+  }
+
+  if (millis() - tmr10 >= _MEASUREMENT_TREND) // таймер 10 мин
+  {
+    weatherTrend(); // определение тенденции изменения погоды каждые 10 мин
+    tmr10 = millis();
   }
 }
 
@@ -246,17 +273,24 @@ void bubbleSort()
 // Подготовка данных к выводу на дисплей
 void dataFormat()
 {
-  wind = 1000000.0 * _WIND_COEFFICIENT / period_time;
-  wind_middle = 1000000.0 * _WIND_COEFFICIENT / period_middle;
-  wind_max = 1000000.0 * _WIND_COEFFICIENT / period_min;
-  if (wind_middle < _CALM)
+  wind = 1000000.0 * _WIND_COEFFICIENT / period_time;          // мгновенное значение ветра
+  wind_middle = 1000000.0 * _WIND_COEFFICIENT / period_middle; // среднее значение ветра за последние 2 минуты
+  wind_max = 1000000.0 * _WIND_COEFFICIENT / period_min;       // максимальное значение ветра за последние 2 минуты (порыв)
+  if (wind_middle < _CALM)                                     // Если штиль
   {
+    lcd.createChar(2, litter_I); // переопределение "своих" символов LCD
+    lcd.createChar(6, litter_L);
+    delay(5);
     azimuth_string = azimuth_string_arr[0];
   }
   else
   {
+    lcd.createChar(2, litter_YU); // переопределение "своих" символов LCD
+    lcd.createChar(6, litter_3);
+    delay(5);
     azimuth_string = azimuth_string_arr[1 + (int)((azimuth_middle + 11) / 22.5)];
   }
+  pressure = bmp.readPressure() / 133.322;
 }
 
 // Первоначальный вывод на экран LCD
@@ -281,11 +315,12 @@ void lcdPrint()
   lcd.print(wind, 1);
   lcd.print("  ");
 
-  lcd.setCursor(7, 0);
+  lcd.setCursor(8, 0);
+  lcd.print(wind_middle_trend);
   lcd.print(wind_middle, 1);
   lcd.print("  ");
 
-  lcd.setCursor(14, 0);
+  lcd.setCursor(16, 0);
   lcd.print(wind_max, 1);
   lcd.print("  ");
 
@@ -294,26 +329,35 @@ void lcdPrint()
   lcd.write(223);
   lcd.print("   ");
 
-  lcd.setCursor(7, 1);
+  lcd.setCursor(6, 1);
   lcd.print("     ");
-  lcd.setCursor(7, 1);
+  lcd.setCursor(6, 1);
   lcd.print(azimuth_string);
 
+  lcd.setCursor(12, 1);
+  lcd.print(pressure_trend);
+  lcd.print(pressure);
+  lcd.print("mmHg");
+
   lcd.setCursor(0, 2);
+  lcd.print(temperature_in_trend);
   lcd.print(temperature_in, 1);
   lcd.write(0);
   lcd.print("C  ");
 
-  lcd.setCursor(10, 2);
+  lcd.setCursor(11, 2);
+  lcd.print(temperature_out_trend);
   lcd.print(temperature_out, 1);
   lcd.write(0);
   lcd.print("C  ");
 
   lcd.setCursor(0, 3);
+  lcd.print(humidity_in_trend);
   lcd.print(humidity_in, 1);
   lcd.print("%  ");
 
-  lcd.setCursor(10, 3);
+  lcd.setCursor(11, 3);
+  lcd.print(humidity_out_trend);
   lcd.print(humidity_out, 1);
   lcd.print("%  ");
 }
@@ -395,4 +439,35 @@ float getHumidity(DHT_Unified dht)
     Serial.println(F("%"));
   }
   return event.relative_humidity;
+}
+
+// Определение трендов параметров погоды
+void weatherTrend()
+{
+  wind_middle_trend = getTrend(wind_middle, wind_middle_old);
+  temperature_in_trend = getTrend(temperature_in, temperature_in_old);
+  temperature_out_trend = getTrend(temperature_out, temperature_out_old);
+  humidity_in_trend = getTrend(humidity_in, humidity_in_old);
+  humidity_out_trend = getTrend(humidity_out, humidity_out_old);
+  pressure_trend = getTrend(pressure, pressure_old);
+}
+
+template <typename T>
+String getTrend(T &val, T &val_old)
+{
+  String result;
+  if (val > val_old)
+  {
+    result = trend_up;
+  }
+  else if (val < val_old)
+  {
+    result = trend_down;
+  }
+  else
+  {
+    result = " ";
+  }
+  val_old = val;
+  return result;
 }
