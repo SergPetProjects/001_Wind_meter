@@ -11,8 +11,8 @@
 #define _MEASUREMENT_PERIOD 10000  // Период измерения скорости ветра(10 с)
 #define _MEASUREMENT_AZIMUTH 10000 // Период вычисления азимута флюгарки(2 мин = 120000)
 #define _MEASUREMENT_TREND 22000   // Период вычисления тенденции погоды(10 мин = 600000)
-#define _ARRAY_PERIOD_VOLUME 10    // Размер массива для хранения скорости ветра (60 = 10 мин / 10000 мс)
-#define _ARRAY_FAZA_VOLUME 600     // Размер массива для хранения азимута (600)
+#define _ARRAY_PERIOD_VOLUME 60    // Размер массива для хранения скорости ветра (60 = 10 мин / 10000 мс)
+#define _ARRAY_FAZA_VOLUME 200     // Размер массива для хранения азимута (600)
 #define _STEP 5                    // Разбиение по азимутам с шагом 5 градусов
 #define _WIND_COEFFICIENT 1.3      // Коэффициент отношения скорости ветра к частоте вращения вертушки
 #define _CALM 0.3                  // Скорость ветра (м/с) при штиле
@@ -76,7 +76,7 @@ const char litter_L[8] PROGMEM = {B00011, B00101, B01001, B01001, B01001, B01001
 const char litter_3[8] PROGMEM = {B01110, B10001, B00001, B00110, B00001, B10001, B01110, B00000};  // З -6 (меняется динамически)
 const char litter_MZ[8] PROGMEM = {B10000, B10000, B10000, B11100, B10010, B10010, B11100, B00000}; // Ь -7
 
-uint32_t delayDHT_11, delayDHT_22;
+// uint32_t delayDHT_11, delayDHT_22;
 uint16_t pressure, pressure_old;
 float temperature_in, temperature_out, humidity_in, humidity_out;
 float temperature_in_old, temperature_out_old, humidity_in_old, humidity_out_old;
