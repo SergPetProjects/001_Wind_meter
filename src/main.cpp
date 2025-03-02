@@ -8,20 +8,19 @@
 #include <DHT_U.h>
 #include <Adafruit_BMP280.h>
 
-#define _MEASUREMENT_PERIOD 10000  // Период измерения скорости ветра(10 с)
-#define _MEASUREMENT_AZIMUTH 10000 // Период вычисления азимута флюгарки(2 мин = 120000)
-#define _MEASUREMENT_TREND 22000   // Период вычисления тенденции погоды(10 мин = 600000)
-#define _ARRAY_PERIOD_VOLUME 60    // Размер массива для хранения скорости ветра (60 = 10 мин / 10000 мс)
-#define _ARRAY_FAZA_VOLUME 200     // Размер массива для хранения азимута (600)
-#define _STEP 5                    // Разбиение по азимутам с шагом 5 градусов
-#define _WIND_COEFFICIENT 1.3      // Коэффициент отношения скорости ветра к частоте вращения вертушки
-#define _CALM 0.3                  // Скорость ветра (м/с) при штиле
-#define _REED_SWITCH_1_PIN 2       // Цифровой вывод, подключенный к геркону вертушки
-#define _REED_SWITCH_2_PIN 3       // Цифровой вывод, подключенный к геркону флюгарки
-#define _DHT11_PIN 4               // Цифровой вывод, подключенный к датчику DHT 11
-#define _DHT22_PIN 5               // Цифровой вывод, подключенный к датчику DHT 11
-#define _DHT11_TYPE DHT11          // DHT 11
-#define _DHT22_TYPE DHT22          // DHT 22 (AM2302)
+#define _MEASUREMENT_PERIOD 10000   // Период измерения скорости ветра(10 с)
+#define _MEASUREMENT_AZIMUTH 120000 // Период вычисления азимута флюгарки(2 мин = 120000)
+#define _MEASUREMENT_TREND 600000   // Период вычисления тенденции погоды(10 мин = 600000)
+#define _ARRAY_PERIOD_VOLUME 60     // Размер массива для хранения скорости ветра (60 = 10 мин / 10000 мс)
+#define _STEP 5                     // Разбиение по азимутам с шагом 5 градусов
+#define _WIND_COEFFICIENT 1.3       // Коэффициент отношения скорости ветра к частоте вращения вертушки
+#define _CALM 0.3                   // Скорость ветра (м/с) при штиле
+#define _REED_SWITCH_1_PIN 2        // Цифровой вывод, подключенный к геркону вертушки
+#define _REED_SWITCH_2_PIN 3        // Цифровой вывод, подключенный к геркону флюгарки
+#define _DHT11_PIN 4                // Цифровой вывод, подключенный к датчику DHT 11
+#define _DHT22_PIN 5                // Цифровой вывод, подключенный к датчику DHT 11
+#define _DHT11_TYPE DHT11           // DHT 11
+#define _DHT22_TYPE DHT22           // DHT 22 (AM2302)
 
 LiquidCrystal_I2C lcd(0x27, 20, 4); //  Объявляем  объект библиотеки, указывая параметры дисплея (адрес I2C = 0x27, количество столбцов = 20, количество строк = 4)
 Adafruit_BMP280 bmp;                // Датчик давления будет подключен по I2C
@@ -34,8 +33,7 @@ void faza();
 void bubbleSort();
 void lcdFirst();
 void lcdPrint();
-void azimuth_array_copy();
-void azimuthSort();
+void azimuthSet();
 void azimuth();
 void dataFormat();
 void printSensorDetails(DHT_Unified dht);
@@ -51,10 +49,10 @@ volatile uint32_t tmr_period = 0, tmr_old = 0, tmr_faza, tmr_faza_old;
 volatile uint32_t period_time, period_middle, period_min;
 volatile uint16_t counter = 0;
 uint32_t period_array[_ARRAY_PERIOD_VOLUME], sort_array[_ARRAY_PERIOD_VOLUME];
-uint32_t azimuth_array[_ARRAY_FAZA_VOLUME], azimuth_faza[_ARRAY_FAZA_VOLUME];
 uint32_t tmr2 = 0, tmr10s = 0, tmr10 = 0;
-uint16_t azimuth_selection[360 / _STEP]; // 360 градусов разбито по 5 градусов
-uint16_t i_period = 0, i_faza = 0, i_faza_max = 0, azimuth_middle = 0;
+uint8_t discrete[360 / _STEP]; // 360 градусов разбито по 5 градусов
+uint8_t discrete_max = 0;
+uint16_t i_period = 0, azimuth_middle = 0;
 float wind, wind_max, wind_middle, wind_middle_old;
 String azimuth_string;
 // String azimuth_string_arr[] = {"CALM", "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW", "N"};
@@ -68,7 +66,7 @@ const char litter_o[8] PROGMEM = {B00111, B00101, B00111, B00000, B00000, B00000
 const char litter_YU[8] PROGMEM = {B10010, B10101, B10101, B11101, B10101, B10101, B10010, B00000};   // Ю -2 (меняется динамически)
 const char litter_I[8] PROGMEM = {B10001, B10001, B10011, B10101, B11001, B10001, B10001, B00000};    // И -2 (меняется динамически)
 const char litter_down[8] PROGMEM = {B00100, B00100, B00100, B00100, B10101, B01110, B00100, B00000}; // стрелка вниз -3
-const char litter_up[8] PROGMEM = {B00100, B01110, B10101, B00100, B00100, B00100, B00100, B00000}; // стрелка вверх -4
+const char litter_up[8] PROGMEM = {B00100, B01110, B10101, B00100, B00100, B00100, B00100, B00000};   // стрелка вверх -4
 // const char litter_P[8] PROGMEM = {B11111, B10001, B10001, B10001, B10001, B10001, B10001, B00000}; // П -3
 // const char litter_U[8] PROGMEM = {B10001, B10001, B10001, B01111, B00001, B00010, B01100, B00000};  // У
 const char litter_SH[8] PROGMEM = {B10101, B10101, B10101, B10101, B10101, B10101, B11111, B00000}; // Ш -5
@@ -76,7 +74,6 @@ const char litter_L[8] PROGMEM = {B00011, B00101, B01001, B01001, B01001, B01001
 const char litter_3[8] PROGMEM = {B01110, B10001, B00001, B00110, B00001, B10001, B01110, B00000};  // З -6 (меняется динамически)
 const char litter_MZ[8] PROGMEM = {B10000, B10000, B10000, B11100, B10010, B10010, B11100, B00000}; // Ь -7
 
-// uint32_t delayDHT_11, delayDHT_22;
 uint16_t pressure, pressure_old;
 float temperature_in, temperature_out, humidity_in, humidity_out;
 float temperature_in_old, temperature_out_old, humidity_in_old, humidity_out_old;
@@ -147,8 +144,7 @@ void loop()
 
   if (millis() - tmr2 >= _MEASUREMENT_AZIMUTH) // таймер 2 мин
   {
-    azimuth_array_copy();
-    azimuthSort(); // определение азимута по таймеру (2 мин)
+    azimuthSet(); // определение азимута по таймеру (2 мин)
     tmr2 = millis();
   }
 
@@ -206,51 +202,45 @@ void faza()
   }
 }
 
-// Расчёт азимута флюгарки
+// Расчёт и накопление азимутов флюгарки
 void azimuth()
 {
-  azimuth_faza[i_faza] = (359 * (tmr_faza - tmr_period)) / (tmr_faza - tmr_faza_old); // азимут в градусах
-  Serial.print("Азимут флюгарки = ");
-  Serial.println(azimuth_faza[i_faza]);
-  Serial.println();
-  i_faza += (azimuth_faza[i_faza] <= 359) ? 1 : 0; // для затирания неверного значения азимута на следующей итерации
-  if (i_faza >= _ARRAY_FAZA_VOLUME)
+  uint16_t azimuth_faza = (359 * (tmr_faza - tmr_period)) / (tmr_faza - tmr_faza_old); // азимут в градусах
+  if (azimuth_faza <= 359)
   {
-    tmr2 = millis();
-    azimuth_array_copy();
-    azimuthSort(); // определение азимута при переполнении массива
-  }
-}
-
-// Взятие актуальной части массива азимутов
-void azimuth_array_copy()
-{
-  i_faza_max = i_faza;
-  memcpy(azimuth_array, azimuth_faza, i_faza_max * sizeof(azimuth_faza[0])); // копирует актуальную часть массива azimuth_faza в azimuth_array
-  i_faza = 0;
-}
-
-// Выборка из массива фаз самого частого значения азимута с дискретностью 5 градусов
-void azimuthSort()
-{
-  uint16_t max = 0;
-  for (uint16_t i = 0; i < 360 / _STEP; i++) // 360 / _STEP = 72 (для шага в 5 градусов)
-    azimuth_selection[i] = 0;                // обнуление массива
-
-  for (uint16_t i = 0; i < i_faza_max; i++)
-  {
-    uint32_t select = azimuth_array[i] / _STEP;
-    if (max < ++azimuth_selection[select])
+    uint16_t select = azimuth_faza / _STEP; // Дискретизация азимута с шагом _STEP
+    if (discrete_max < ++discrete[select])  // накопление измеренных азимутов в дискретном массиве
     {
-      max = azimuth_selection[select]; // поиск max в массиве
-      azimuth_middle = select * _STEP;
-      Serial.print("azimuth_middle = ");
-      Serial.println(azimuth_middle);
+      discrete_max = discrete[select]; // max количество дискрет в массиве
     }
-    Serial.print(select * _STEP);
-    Serial.print(" - ");
-    Serial.println(azimuth_selection[select]);
+    Serial.print("discrete[select] = ");
+    Serial.println(discrete[select]);
+    Serial.print("discrete_max = ");
+    Serial.println(discrete_max);
+    Serial.println();
+
+    if (discrete[select] > 250)
+    {
+      azimuthSet(); // если массив близок к переполнению вычисляем средний азимут
+    }
   }
+}
+
+// Вычисление среднего азимута
+void azimuthSet()
+{
+  for (uint16_t i = 0; i < 360 / _STEP; i++) // 360 / _STEP = 72 (для шага в 5 градусов)
+  {
+    Serial.print(i * _STEP);
+    Serial.print(" = ");
+    Serial.println(discrete[i]);
+    if (discrete[i] >= discrete_max)
+    {
+      azimuth_middle = i * _STEP; // дискрета содержащая наибольшее количество отсчётов
+    }
+    discrete[i] = 0; // обнуление массива
+  }
+  discrete_max = 0;
 }
 
 // Сортировка массива (пузырьковая)
